@@ -36,8 +36,13 @@ jobs:
       run: |
         CDIR=$(find source/build_dir -maxdepth 6 -type d -name 'conninfra' | head -1)
         echo "Dir: $CDIR"
-        echo '--- .c files ---'
-        find "$CDIR" -name '*.c' | sort
-        echo '--- of_device_id matches ---'
-        grep -rn 'of_device_id|MODULE_DEVICE_TABLE' "$CDIR" \
-          --include='*.c' --include='*.h' | head -40 || echo 'NOT FOUND'
+        echo '=== ALL FILES ==='
+        find "$CDIR" -type f | sort
+        echo '=== of_device_id in ALL files ==='
+        grep -rn 'of_device_id\|MODULE_DEVICE_TABLE\|ap_conninfra' "$CDIR" \
+          --include='*.h' --include='*.c' | head -40 || echo 'NOT FOUND'
+        echo '=== consys_hw.h content ==='
+        find "$CDIR" -name 'consys_hw.h' | xargs cat 2>/dev/null || echo 'no consys_hw.h'
+        echo '=== Makefile/Kbuild check ==='
+        find "$CDIR" -name 'Makefile' -o -name 'Kbuild' | \
+          xargs grep -n 'ap_conninfra\|of_device_id' 2>/dev/null || echo 'NOT FOUND in Makefile'
