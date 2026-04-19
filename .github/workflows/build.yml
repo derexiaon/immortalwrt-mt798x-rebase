@@ -1,48 +1,105 @@
-name: Debug conninfra symbol
+name: Build N60 Pro Firmware
 
 on:
   workflow_dispatch:
 
 jobs:
-  debug:
+  build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [stock, mtkuboot]
 
     steps:
     - name: Checkout repo
       uses: actions/checkout@v4
 
-    - name: Install minimal deps
+    - name: Install dependencies
       run: |
-        sudo apt update -qq
-        sudo apt install -y build-essential libncurses5-dev python3 git wget xz-utils
+        sudo apt update
+        sudo apt full-upgrade -y
+        sudo apt install -y \
+          build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+          gettext git libncurses-dev libssl-dev python3-distutils rsync unzip \
+          zlib1g-dev file wget curl
+
+    - name: Add swap
+      run: |
+        sudo swapoff -a || true
+        sudo rm -f /swapfile /mnt/swapfile
+        sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
 
     - name: Clone source
       run: |
         git clone --depth=1 https://github.com/derexiaon/immortalwrt-mt798x-rebase source
 
-    - name: Minimal config
+    - name: Update feeds
+      run: |
+        cd source
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Load config
       run: |
         cd source
         cp ../defconfig/n60pro.config .config
+
+        sed -i '/^CONFIG_TARGET_DEVICE_mediatek_/d' .config
+
+        sed -i '/^CONFIG_PACKAGE_kmod-conninfra=/d' .config
+        sed -i '/^CONFIG_PACKAGE_conninfra=/d' .config
+        sed -i '/^CONFIG_PACKAGE_kmod-mt_wifi=/d' .config
+        sed -i '/^CONFIG_PACKAGE_mt_wifi=/d' .config
+
+        # Оставляем проприетарный Wi-Fi стек, но убираем только проблемный conninfra
+        echo '# CONFIG_PACKAGE_kmod-conninfra is not set' >> .config
+
+        if [ "${{ matrix.profile }}" = "stock" ]; then
+          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
+        else
+          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro-mtkuboot=y" >> .config
+        fi
+
         make defconfig
 
-    - name: Download and prepare conninfra only
+    - name: Verify config
       run: |
         cd source
-        make package/mtk/drivers/conninfra/download V=sc
-        make package/mtk/drivers/conninfra/prepare V=sc
+        grep -E 'CONFIG_PACKAGE_(kmod-conninfra|conninfra|kmod-mt_wifi|mt_wifi)=' .config || true
 
-    - name: Find of_device_id symbol
+    - name: Download packages
       run: |
-        CDIR=$(find source/build_dir -maxdepth 6 -type d -name 'conninfra' | head -1)
-        echo "Dir: $CDIR"
-        echo '=== ALL FILES ==='
-        find "$CDIR" -type f | sort
-        echo '=== of_device_id in ALL files ==='
-        grep -rn 'of_device_id\|MODULE_DEVICE_TABLE\|ap_conninfra' "$CDIR" \
-          --include='*.h' --include='*.c' | head -40 || echo 'NOT FOUND'
-        echo '=== consys_hw.h content ==='
-        find "$CDIR" -name 'consys_hw.h' | xargs cat 2>/dev/null || echo 'no consys_hw.h'
-        echo '=== Makefile/Kbuild check ==='
-        find "$CDIR" -name 'Makefile' -o -name 'Kbuild' | \
-          xargs grep -n 'ap_conninfra\|of_device_id' 2>/dev/null || echo 'NOT FOUND in Makefile'
+        cd source
+        make download -j$(nproc)
+
+    - name: Build firmware
+      run: |
+        cd source
+        make -j$(nproc) || make -j1 V=sc
+
+    - name: Prepare artifact
+      if: success()
+      run: |
+        cd source/bin/targets/*/*
+        mkdir -p /tmp/artifacts
+        if [ "${{ matrix.profile }}" = "stock" ]; then
+          NAME="n60pro-stock"
+        else
+          NAME="n60pro-mtkuboot"
+        fi
+        cp * /tmp/artifacts/
+        cd /tmp
+        tar -czf firmware-${NAME}.tar.gz artifacts
+
+    - name: Upload firmware
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-${{ matrix.profile }}
+        path: /tmp/firmware-*.tar.gz
