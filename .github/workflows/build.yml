@@ -52,9 +52,14 @@ jobs:
           cd source
           cp ../defconfig/n60pro.config .config
 
+          # Удаляем device-таргеты — добавим нужный ниже
           sed -i '/^CONFIG_TARGET_DEVICE_mediatek_/d' .config
-          sed -i '/^CONFIG_PACKAGE_kmod-conninfra=/d' .config
-          sed -i '/^CONFIG_PACKAGE_conninfra=/d' .config
+
+          # Явно выключаем conninfra — иначе defconfig включит обратно
+          sed -i '/^CONFIG_PACKAGE_kmod-conninfra/d' .config
+          sed -i '/^CONFIG_PACKAGE_conninfra/d' .config
+          echo "CONFIG_PACKAGE_kmod-conninfra=n" >> .config
+          echo "CONFIG_PACKAGE_conninfra=n" >> .config
 
           if [ "${{ matrix.profile }}" = "stock" ]; then
             echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
