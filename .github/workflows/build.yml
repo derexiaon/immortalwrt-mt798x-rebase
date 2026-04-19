@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
 
     strategy:
       fail-fast: false
@@ -55,15 +56,12 @@ jobs:
       run: |
         cd source
         cp ../defconfig/n60pro.config .config
-
         sed -i '/^CONFIG_TARGET_DEVICE_mediatek_/d' .config
-
         if [ "${{ matrix.profile }}" = "stock" ]; then
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
         else
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro-mtkuboot=y" >> .config
         fi
-
         make defconfig
 
     - name: Show selected config
@@ -75,40 +73,51 @@ jobs:
         grep '^CONFIG_PACKAGE_kmod-conninfra=' .config || true
         echo "==== MT WIFI ===="
         grep '^CONFIG_PACKAGE_kmod-mt_wifi=' .config || true
-        echo "==== LUCI ===="
-        grep '^CONFIG_PACKAGE_luci' .config || true
 
     - name: Download packages
       run: |
         cd source
         make download -j$(nproc)
 
+    - name: Debug conninfra
+      run: |
+        cd source
+        make package/mtk/drivers/conninfra/compile -j1 V=sc 2>&1 | tee /tmp/conninfra.log || true
+
+    - name: Upload conninfra log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: conninfra-log-${{ matrix.profile }}
+        path: /tmp/conninfra.log
+
     - name: Build firmware
       run: |
         cd source
-        make -j$(nproc) || make -j1 V=s 2>&1 | tee build.log
+        make -j$(nproc) || {
+          echo "=== First build failed, retrying with -j1 V=sc ==="
+          make -j1 V=sc 2>&1 | tail -n 300 | tee /tmp/build.log
+          exit 1
+        }
 
     - name: Upload build log on failure
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: build-log-${{ matrix.profile }}
-        path: source/build.log
+        path: /tmp/build.log
 
     - name: Prepare artifact
       if: success()
       run: |
         cd source/bin/targets/*/*
         mkdir -p /tmp/artifacts
-
         if [ "${{ matrix.profile }}" = "stock" ]; then
           NAME="n60pro-stock"
         else
           NAME="n60pro-mtkuboot"
         fi
-
         cp * /tmp/artifacts/
-
         cd /tmp
         tar -czf firmware-${NAME}.tar.gz artifacts
 
