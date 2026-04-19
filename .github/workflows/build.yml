@@ -13,7 +13,7 @@ jobs:
         profile: [stock, mtkuboot]
 
     steps:
-    - name: Checkout
+    - name: Checkout repo
       uses: actions/checkout@v4
 
     - name: Install dependencies
@@ -24,7 +24,7 @@ jobs:
           gettext git libncurses-dev libssl-dev python3-distutils rsync unzip \
           zlib1g-dev file wget curl
 
-    - name: Add swap
+    - name: Add swap (prevent OOM)
       run: |
         sudo fallocate -l 8G /swapfile
         sudo chmod 600 /swapfile
@@ -33,7 +33,7 @@ jobs:
 
     - name: Clone source
       run: |
-        git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase source
+        git clone https://github.com/derexiaon/immortalwrt-mt798x-rebase source
 
     - name: Update feeds
       run: |
@@ -45,18 +45,29 @@ jobs:
       run: |
         cd source
 
-        cp ../n60pro.config .config
+        # КОПИРУЕМ ТВОЙ КОНФИГ
+        cp ../defconfig/n60pro.config .config
 
-        # выбираем загрузчик
-        sed -i '/CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore/d' .config
+        # УДАЛЯЕМ все возможные device (на всякий случай)
+        sed -i '/CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_/d' .config
 
+        # ВЫБИРАЕМ профиль через matrix
         if [ "${{ matrix.profile }}" = "stock" ]; then
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
         else
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro-mtkuboot=y" >> .config
         fi
 
+        # Применяем конфиг
         make defconfig
+
+    - name: Show selected config (debug)
+      run: |
+        cd source
+        echo "==== DEVICE ===="
+        grep netcore .config || true
+        echo "==== LUCI ===="
+        grep luci .config || true
 
     - name: Download packages
       run: |
