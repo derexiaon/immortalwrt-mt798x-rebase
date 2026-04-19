@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
 
     strategy:
       fail-fast: false
@@ -19,14 +19,21 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
+        sudo apt full-upgrade -y
         sudo apt install -y \
-          build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses-dev libssl-dev python3-distutils rsync unzip \
-          zlib1g-dev file wget curl
+          ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang clangd cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+          gettext gcc-multilib g++-multilib git gperf haveged help2man intltool lib32gcc-s1 \
+          libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+          libmpfr-dev libncurses5-dev libncursesw5 libncursesw5-dev libreadline-dev libssl-dev \
+          libtool lld lldb lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
+          python2.7 python3 python3-pip python3-ply python3-docutils qemu-utils re2c rsync \
+          scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd \
+          zlib1g-dev file
 
     - name: Add swap (prevent OOM)
       run: |
-        sudo swapoff -a
+        sudo swapoff -a || true
         sudo rm -f /swapfile /mnt/swapfile
         sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
         sudo chmod 600 /swapfile
@@ -36,7 +43,7 @@ jobs:
 
     - name: Clone source
       run: |
-        git clone https://github.com/derexiaon/immortalwrt-mt798x-rebase source
+        git clone --depth=1 https://github.com/derexiaon/immortalwrt-mt798x-rebase source
 
     - name: Update feeds
       run: |
@@ -47,30 +54,29 @@ jobs:
     - name: Load config
       run: |
         cd source
-
-        # КОПИРУЕМ ТВОЙ КОНФИГ
         cp ../defconfig/n60pro.config .config
 
-        # УДАЛЯЕМ все возможные device (на всякий случай)
-        sed -i '/CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_/d' .config
+        sed -i '/^CONFIG_TARGET_DEVICE_mediatek_/d' .config
 
-        # ВЫБИРАЕМ профиль через matrix
         if [ "${{ matrix.profile }}" = "stock" ]; then
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
         else
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro-mtkuboot=y" >> .config
         fi
 
-        # Применяем конфиг
         make defconfig
 
-    - name: Show selected config (debug)
+    - name: Show selected config
       run: |
         cd source
         echo "==== DEVICE ===="
-        grep netcore .config || true
+        grep '^CONFIG_TARGET_DEVICE_mediatek_' .config || true
+        echo "==== CONNINFRA ===="
+        grep '^CONFIG_PACKAGE_kmod-conninfra=' .config || true
+        echo "==== MT WIFI ===="
+        grep '^CONFIG_PACKAGE_kmod-mt_wifi=' .config || true
         echo "==== LUCI ===="
-        grep luci .config || true
+        grep '^CONFIG_PACKAGE_luci' .config || true
 
     - name: Download packages
       run: |
@@ -80,9 +86,17 @@ jobs:
     - name: Build firmware
       run: |
         cd source
-        make -j$(nproc) || make -j1 V=s
+        make -j$(nproc) || make -j1 V=s 2>&1 | tee build.log
+
+    - name: Upload build log on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log-${{ matrix.profile }}
+        path: source/build.log
 
     - name: Prepare artifact
+      if: success()
       run: |
         cd source/bin/targets/*/*
         mkdir -p /tmp/artifacts
@@ -99,6 +113,7 @@ jobs:
         tar -czf firmware-${NAME}.tar.gz artifacts
 
     - name: Upload firmware
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: firmware-${{ matrix.profile }}
