@@ -26,10 +26,13 @@ jobs:
 
     - name: Add swap (prevent OOM)
       run: |
-        sudo fallocate -l 8G /swapfile
+        sudo swapoff -a
+        sudo rm -f /swapfile /mnt/swapfile
+        sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
         sudo chmod 600 /swapfile
         sudo mkswap /swapfile
         sudo swapon /swapfile
+        free -h
 
     - name: Clone source
       run: |
