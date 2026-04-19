@@ -79,6 +79,16 @@ jobs:
         cd source
         make download -j$(nproc)
 
+    - name: Find conninfra of_device_id declaration
+      run: |
+        cd source
+        make package/mtk/drivers/conninfra/prepare V=sc 2>/dev/null || true
+        find build_dir -path "*/conninfra*" -name "*.c" 2>/dev/null | \
+        xargs grep -l "of_device_id" 2>/dev/null | head -10
+        find build_dir -path "*/conninfra*" -name "*.c" 2>/dev/null | \
+        xargs grep -n "of_device_id|MODULE_DEVICE_TABLE" 2>/dev/null | \
+        grep -v "^Binary" | head -30
+    
     - name: Debug conninfra
       run: |
         cd source
