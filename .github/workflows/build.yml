@@ -1,123 +1,43 @@
-name: Build N60 Pro Firmware
+name: Debug conninfra symbol
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  debug:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
-
-    strategy:
-      fail-fast: false
-      matrix:
-        profile: [stock, mtkuboot]
 
     steps:
     - name: Checkout repo
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install minimal deps
       run: |
-        sudo apt update
-        sudo apt full-upgrade -y
-        sudo apt install -y \
-          ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-          bzip2 ccache clang clangd cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
-          gettext gcc-multilib g++-multilib git gperf haveged help2man intltool lib32gcc-s1 \
-          libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
-          libmpfr-dev libncurses5-dev libncursesw5 libncursesw5-dev libreadline-dev libssl-dev \
-          libtool lld lldb lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
-          python2.7 python3 python3-pip python3-ply python3-docutils qemu-utils re2c rsync \
-          scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd \
-          zlib1g-dev file
-
-    - name: Add swap (prevent OOM)
-      run: |
-        sudo swapoff -a || true
-        sudo rm -f /swapfile /mnt/swapfile
-        sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
-        free -h
+        sudo apt update -qq
+        sudo apt install -y build-essential libncurses5-dev python3 git wget xz-utils
 
     - name: Clone source
       run: |
         git clone --depth=1 https://github.com/derexiaon/immortalwrt-mt798x-rebase source
 
-    - name: Update feeds
-      run: |
-        cd source
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-    - name: Load config
+    - name: Minimal config
       run: |
         cd source
         cp ../defconfig/n60pro.config .config
-        sed -i '/^CONFIG_TARGET_DEVICE_mediatek_/d' .config
-        if [ "${{ matrix.profile }}" = "stock" ]; then
-          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
-        else
-          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro-mtkuboot=y" >> .config
-        fi
         make defconfig
 
-    - name: Download packages
+    - name: Download and prepare conninfra only
       run: |
         cd source
-        make download -j$(nproc)
+        make package/mtk/drivers/conninfra/download V=sc
+        make package/mtk/drivers/conninfra/prepare V=sc
 
-    - name: Prepare conninfra source
+    - name: Find of_device_id symbol
       run: |
-        cd source
-        make package/mtk/drivers/conninfra/prepare V=sc 2>/dev/null || true
-
-    - name: Show conninfra device table symbol
-      run: |
-        CONNINFRA_DIR=$(find source/build_dir -maxdepth 5 -type d -name "conninfra" 2>/dev/null | head -1)
-        echo "Conninfra dir: $CONNINFRA_DIR"
-        if [ -n "$CONNINFRA_DIR" ]; then
-          echo "=== consys_hw_plat_data.c ==="
-          grep -n "of_device_id|MODULE_DEVICE_TABLE|EXPORT_SYMBOL" "$CONNINFRA_DIR/platform/consys_hw_plat_data.c" || true
-          echo "=== consys_hw.c ==="
-          grep -n "of_device_id|MODULE_DEVICE_TABLE|EXPORT_SYMBOL" "$CONNINFRA_DIR/platform/consys_hw.c" || true
-        fi
-
-    - name: Build firmware
-      run: |
-        cd source
-        make -j$(nproc) || {
-          echo "=== First build failed, retrying with -j1 V=sc ==="
-          make -j1 V=sc 2>&1 | tail -n 300 | tee /tmp/build.log
-          exit 1
-        }
-
-    - name: Upload build log on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log-${{ matrix.profile }}
-        path: /tmp/build.log
-
-    - name: Prepare artifact
-      if: success()
-      run: |
-        cd source/bin/targets/*/*
-        mkdir -p /tmp/artifacts
-        if [ "${{ matrix.profile }}" = "stock" ]; then
-          NAME="n60pro-stock"
-        else
-          NAME="n60pro-mtkuboot"
-        fi
-        cp * /tmp/artifacts/
-        cd /tmp
-        tar -czf firmware-${NAME}.tar.gz artifacts
-
-    - name: Upload firmware
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: firmware-${{ matrix.profile }}
-        path: /tmp/firmware-*.tar.gz
+        CDIR=$(find source/build_dir -maxdepth 6 -type d -name 'conninfra' | head -1)
+        echo "Dir: $CDIR"
+        echo '--- .c files ---'
+        find "$CDIR" -name '*.c' | sort
+        echo '--- of_device_id matches ---'
+        grep -rn 'of_device_id|MODULE_DEVICE_TABLE' "$CDIR" \
+          --include='*.c' --include='*.h' | head -40 || echo 'NOT FOUND'
