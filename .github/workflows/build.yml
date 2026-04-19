@@ -64,42 +64,24 @@ jobs:
         fi
         make defconfig
 
-    - name: Show selected config
-      run: |
-        cd source
-        echo "==== DEVICE ===="
-        grep '^CONFIG_TARGET_DEVICE_mediatek_' .config || true
-        echo "==== CONNINFRA ===="
-        grep '^CONFIG_PACKAGE_kmod-conninfra=' .config || true
-        echo "==== MT WIFI ===="
-        grep '^CONFIG_PACKAGE_kmod-mt_wifi=' .config || true
-
     - name: Download packages
       run: |
         cd source
         make download -j$(nproc)
 
-    - name: Find conninfra of_device_id declaration
+    - name: Prepare conninfra source
       run: |
         cd source
         make package/mtk/drivers/conninfra/prepare V=sc 2>/dev/null || true
-        find build_dir -path "*/conninfra*" -name "*.c" 2>/dev/null | \
-        xargs grep -l "of_device_id" 2>/dev/null | head -10
-        find build_dir -path "*/conninfra*" -name "*.c" 2>/dev/null | \
-        xargs grep -n "of_device_id|MODULE_DEVICE_TABLE" 2>/dev/null | \
-        grep -v "^Binary" | head -30
-    
-    - name: Debug conninfra
-      run: |
-        cd source
-        make package/mtk/drivers/conninfra/compile -j1 V=sc 2>&1 | tee /tmp/conninfra.log || true
 
-    - name: Upload conninfra log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: conninfra-log-${{ matrix.profile }}
-        path: /tmp/conninfra.log
+    - name: Show conninfra device table symbol
+      run: |
+        echo "=== consys_hw_plat_data.c ==="
+        grep -n "of_device_id\|MODULE_DEVICE_TABLE\|EXPORT_SYMBOL" \
+          source/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/conninfra/platform/consys_hw_plat_data.c || true
+        echo "=== consys_hw.c ==="
+        grep -n "of_device_id\|MODULE_DEVICE_TABLE\|EXPORT_SYMBOL" \
+          source/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/conninfra/platform/consys_hw.c || true
 
     - name: Build firmware
       run: |
