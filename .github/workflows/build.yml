@@ -76,12 +76,14 @@ jobs:
 
     - name: Show conninfra device table symbol
       run: |
-        echo "=== consys_hw_plat_data.c ==="
-        grep -n "of_device_id\|MODULE_DEVICE_TABLE\|EXPORT_SYMBOL" \
-          source/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/conninfra/platform/consys_hw_plat_data.c || true
-        echo "=== consys_hw.c ==="
-        grep -n "of_device_id\|MODULE_DEVICE_TABLE\|EXPORT_SYMBOL" \
-          source/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/conninfra/platform/consys_hw.c || true
+        CONNINFRA_DIR=$(find source/build_dir -maxdepth 5 -type d -name "conninfra" 2>/dev/null | head -1)
+        echo "Conninfra dir: $CONNINFRA_DIR"
+        if [ -n "$CONNINFRA_DIR" ]; then
+          echo "=== consys_hw_plat_data.c ==="
+          grep -n "of_device_id|MODULE_DEVICE_TABLE|EXPORT_SYMBOL" "$CONNINFRA_DIR/platform/consys_hw_plat_data.c" || true
+          echo "=== consys_hw.c ==="
+          grep -n "of_device_id|MODULE_DEVICE_TABLE|EXPORT_SYMBOL" "$CONNINFRA_DIR/platform/consys_hw.c" || true
+        fi
 
     - name: Build firmware
       run: |
